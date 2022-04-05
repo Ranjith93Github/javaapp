@@ -1,34 +1,33 @@
-@Library("app-lib") _
-pipeline {
-  agent any
-
-  tools {
-    maven 'maven3'
-  }
-  options {
-    buildDiscarder logRotator(daysToKeepStr: '10', numToKeepStr: '7')
-  }
-  parameters {
-    choice choices: ['develop', 'qa', 'master'], description: 'Choose the branch to build', name: 'branchName'
-  }
-  stages {
-    stage('Maven Build') {
-      steps {
-        sh 'mvn clean package'
-      }
+node
+{
+   def buildNumber = BUILD_NUMBER
+   stage("Git CheckOut"){
+        git credentialsId: 'git-cred', url: 'https://github.com/Ranjith93Github/myapp.git',branch: 'master'
     }
-    stage('Deploy to Tomcat') {
-      steps {
-        tomcatDeploy(["172.31.13.38","172.31.13.38","172.31.13.38"],"ec2-user","tomcat-dev")
-      }
+    stage(" Maven Clean Package"){
+       def mvnHome =  tool name: 'maven', type: 'maven'   
+      sh "${mvnHome}/bin/mvn clean package"
+	  sh 'mv target/myweb*.war target/newapp.war'
+   } 
+       stage("Build Dokcer Image") {
+         sh "docker build -t ranjithdocker93/myapp:${buildNumber} ."
     }
-  }
-  post {
-    success {
-      archiveArtifacts artifacts: 'target/*.war'
-      cleanWs()
+ stage("Docker login and Push"){
+        withCredentials([string(credentialsId: 'Docker_deploy', variable: 'Docker_deploy')]) {
+         sh "docker login -u ranjithdocker93 -p ${Docker_deploy} " 
+           }
+        sh "docker push ranjithdocker93/myapp:${buildNumber}"
     }
+         stage('Remove Previous Container'){
+	try{
+		sh 'docker rm -f tomcattest'
+	}catch(error){
+		//  do nothing if there is an exception
+	}
+    stage("Deploy to dockercontinor in docker deployer"){
+        sshagent(['Docker-dev']) {
+            sh "ssh -o StrictHostKeyChecking=no ubuntu@172.31.34.250 docker rm -f cloudcontainer || true"
+            sh "ssh -o StrictHostKeyChecking=no ubuntu@172.31.34.250 docker run -d -p 8080:8080 --name cloudcontainer ranjithdocker93/myapp:${buildNumber}"           
+    }  
   }
 }
-© 2022 GitHub, Inc.
-Term
